@@ -347,11 +347,16 @@ altered.
 
 =cut
 
+# undocumented option silent, only relevant in case of FileReader
 sub cancel
 {
-    my $self = shift;
+    my ($self, %opts) = @_;
 
-    $self->verbose("Will not save file ", *$self->{filename}, " (cancelled)");
+    if ($opts{silent}) {
+        $self-debug(1, "Will not save file ", *$self->{filename}, " (reading)");
+    } else {
+        $self->verbose("Will not save file ", *$self->{filename}, " (cancelled)");
+    }
 
     *$self->{save} = 0;
 }
