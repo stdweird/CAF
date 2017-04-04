@@ -53,8 +53,6 @@ sub new
     return $self;
 }
 
-=pod
-
 =item open
 
 Synonym for C<new()>
@@ -66,7 +64,18 @@ no warnings 'redefine';
 *open = \&new;
 use warnings;
 
-=pod
+=item reopen
+
+You cannot reopen a FileReader.
+Any attempt will be reported.
+
+=cut
+
+sub reopen
+{
+    my $self = shift;
+    $self->verbose("Cannot reopen FileReader ", *$self->{filename});
+}
 
 =back
 

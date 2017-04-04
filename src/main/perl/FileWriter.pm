@@ -229,7 +229,7 @@ sub close
 
     if (*$self->{save}) {
         *$self->{save} = 0;
-        my $content_ref = *$self->{buf};
+        my $content_ref = $self->string_ref();
 
         if (*$self->{original_from_source}) {
             # Report changes compared to source
@@ -338,6 +338,27 @@ sub close
 
     $self->SUPER::close();
     return $changed;
+}
+
+=item reopen
+
+Prepare to write again to the current file (after close).
+
+This also promotes the current content to
+the new original content of the file.
+
+(This is not the inverse of cancel).
+
+=cut
+
+sub reopen
+{
+    my $self = shift;
+    $self->verbose("Reopening ", *$self->{filename});
+
+    *$self->{save} = 1;
+    my $content_ref = $self->string_ref;
+    *$self->{original_content} = $$content_ref;
 }
 
 =item cancel

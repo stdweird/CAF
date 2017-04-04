@@ -143,6 +143,16 @@ no warnings 'redefine';
 *open = \&new;
 use warnings;
 
+# Open FileEditor starts at the end, so same here
+# Original content is now from current content, not from source
+sub reopen
+{
+    my $self = shift;
+    $self->SUPER::reopen();
+
+    delete *$self->{original_from_source};
+    $self->seek(IO_SEEK_END);
+}
 
 =pod
 
