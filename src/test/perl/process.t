@@ -117,7 +117,7 @@ $this_app->config_reporter(logfile => $fh);
 my $ps = CAF::Process->new ($command, log => $this_app,
 			stdin => "Something", sensitive => 1);
 $ps->run ();
-like ($str, qr/Running the command: <sensitive>/,
+like ($str, qr/Running the command: ls <sensitive>/,
       "run logged with sensitive mode (command not in log)");
 
 

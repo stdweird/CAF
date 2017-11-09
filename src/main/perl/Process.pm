@@ -159,7 +159,7 @@ sub _LC_Process
 
     $msg =~ s/^(\w)/Not \L$1/ if $self->noAction();
     $self->verbose("$msg command: ",
-                   ($self->{sensitive} ? '<sensitive>' : $self->stringify_command()),
+                   ($self->{sensitive} ? "$self->{COMMAND}->[0] <sensitive>" : $self->stringify_command()),
                    (defined($postmsg) ? " $postmsg" : ''));
 
     if ($self->noAction()) {
