@@ -105,11 +105,12 @@ false.
 
 =item C<sensitive>
 
-A boolean specifying whether the command (and args) contain sensitive information
+A boolean specifying whether the arguments contain sensitive information
 (like passwords). If C<sensitive> is true, the commandline will not be reported
-(by default the commanlione is reported in with verbose).
+(by default and when C<log> option is used, the commandline is reported
+with verbose level).
 
-This does not cover command output. If th eoutput (stdout or stderr) contains
+This does not cover command output. If the output (stdout and/or stderr) contains
 sensitve information, make sure to handle it yourself via C<stdout> and/or C<stderr>
 options (or by using the C<output> method).
 
