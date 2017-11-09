@@ -103,6 +103,16 @@ regardless of any value for C<NoAction>.
 By default, commands modify the state and thus C<keeps_state> is
 false.
 
+=item C<sensitive>
+
+A boolean specifying whether the command (and args) contain sensitive information
+(like passwords). If C<sensitive> is true, the commandline will not be reported
+(by default the commanlione is reported in with verbose).
+
+This does not cover command output. If th eoutput (stdout or stderr) contains
+sensitve information, make sure to handle it yourself via C<stdout> and/or C<stderr>
+options (or by using the C<output> method).
+
 =back
 
 These options will only be used by the execute method.
@@ -121,6 +131,8 @@ sub _initialize
         $self->debug(1, "keeps_state set");
         $self->{NoAction} = 0
     };
+
+    $self->{sensitive} = $opts{sensitive};
 
     $self->{COMMAND} = $command;
 
@@ -145,7 +157,9 @@ sub _LC_Process
     my ($self, $function, $args, $noaction_value, $msg, $postmsg) = @_;
 
     $msg =~ s/^(\w)/Not \L$1/ if $self->noAction();
-    $self->verbose("$msg command: ", $self->stringify_command(), (defined($postmsg) ? " $postmsg" : ''));
+    $self->verbose("$msg command: ",
+                   ($self->{sensitive} ? '<sensitive>' : $self->stringify_command()),
+                   (defined($postmsg) ? " $postmsg" : ''));
 
     if ($self->noAction()) {
         $self->debug(1, "LC_Process in noaction mode for $function");
