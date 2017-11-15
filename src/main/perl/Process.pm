@@ -2,7 +2,7 @@
 
 use parent qw(CAF::Object);
 
-use LC::Exception qw (SUCCESS throw_error);
+use LC::Exception qw (SUCCESS);
 use LC::Process;
 
 use File::Which;
@@ -11,6 +11,8 @@ use File::Basename;
 use overload ('""' => 'stringify_command');
 use Readonly;
 
+use English;
+
 Readonly::Hash my %LC_PROCESS_DISPATCH => {
     output => \&LC::Process::output,
     toutput => \&LC::Process::toutput,
@@ -18,7 +20,6 @@ Readonly::Hash my %LC_PROCESS_DISPATCH => {
     trun => \&LC::Process::trun,
     execute => \&LC::Process::execute,
 };
-
 
 =pod
 
@@ -114,6 +115,27 @@ This does not cover command output. If the output (stdout and/or stderr) contain
 sensitve information, make sure to handle it yourself via C<stdout> and/or C<stderr>
 options (or by using the C<output> method).
 
+=item C<user>
+
+Run command as effective user. The C<user> can be an id (all digits) or a name.
+
+This only works when the current user is root.
+
+In case a non-root user uses this option, or C<user> is not a valid user,
+the initialisation will work but any actual execution will fail.
+
+=item C<group>
+
+Run command with effective group. The C<group> can be an id (all digits) or a name.
+
+If C<user> is defined, and C<group> is not, the users primary group will be used
+(instead of the default root group).
+
+This only works when the current user is root.
+
+In case a non-root user uses this option, or C<group> is not a valid group,
+the initialisation will work but any actual execution will fail.
+
 =back
 
 These options will only be used by the execute method.
@@ -133,7 +155,9 @@ sub _initialize
         $self->{NoAction} = 0
     };
 
-    $self->{sensitive} = $opts{sensitive};
+    foreach my $name (qw(sensitive user group)) {
+        $self->{$name} = $opts{$name};
+    }
 
     $self->{COMMAND} = $command;
 
@@ -153,10 +177,125 @@ C<<<msg> command: <COMMAND>[ <postmsg>]>>.
 
 =cut
 
+sub _get_uid_gid
+{
+    my ($self, $mode) = @_;
+
+    my @res;
+    my $what = $self->{$mode};
+    if (defined($what)) {
+        my $is_id = $what =~ m/^\d+$/ ? 1 : 0;
+        my $is_user = $mode eq 'user' ? 1 : 0;
+        # This is ugly
+        #   But you cannot reference the builtin functions,
+        #   maybe by using simple wrapper like my $fn = sub { builtin(@_) } (eg sub {getpwname($_[0])})
+        #   But the getpw / getgr functions are safe to use (they do not die, just return undef)
+        #   so no _safe_eval and a funcref required
+        # For the is_id case, strictly not needed to check details, since setuid can change to non-known user
+        #   But we don't allow that here.
+        my @info = $is_id ?
+            ($is_user ? getpwuid($what) : getgrgid($what)) :
+            ($is_user ? getpwnam($what) : getgrnam($what));
+
+        # What do we need from info: the IDs, and for users, also the primary groups
+        if (@info) {
+            # pwnam/pwuid: uid=2 and gid=3
+            # grnam/uid: gid=2
+            @res = ($info[2], $is_user ? $info[3] : undef);
+        } else {
+            $self->error("No such $mode $what (is user $is_user; is id $is_id)");
+        }
+    }
+
+    return @res;
+}
+
+# set euid/egid if user and/or group was set
+# returns 1 on success.
+# on failure, report error and return undef
+sub _set_eff_user_group
+{
+    my ($self, $orig) = @_;
+
+    my ($uid, $gid, $pri_gid, $gid_full, $oper);
+
+    my $restore = defined($orig) ? 1 : 0;
+
+    if ($restore) {
+        $oper = "restoring";
+        ($uid, $gid) = @$orig;
+        # We assume the original gid is the original list of groups
+        $gid_full = "$gid";
+    } else {
+        $oper = "changing";
+
+        # has to be array context
+        ($uid, $pri_gid) = $self->_get_uid_gid('user');
+        ($gid) = $self->_get_uid_gid('group');
+        # use user primary group when no group specified
+        $gid = $pri_gid if defined $uid && ! defined $gid;
+        # This is how you set the GID to only the GID (i.e. no other groups)
+        $gid_full = "$gid $gid" if defined $gid;
+    }
+
+    # return 1 or 0
+    my $set_user = sub {
+        return 1 if ! defined $uid;
+
+        my $msg = "EUID from $EUID to $uid with UID $UID";
+        if ($EUID == $uid) {
+            $self->verbose(ucfirst($oper)." $msg: no changes required")
+        } else {
+            $EUID = $uid;
+            if ($EUID == $uid) {
+                $self->verbose(ucfirst($oper)." $msg")
+            } else {
+                $self->error("Something went wrong $oper $msg: $!");
+                return 0;
+            }
+        }
+        return 1;
+    };
+
+    # return 1 or 0
+    my $set_group = sub {
+        return 1 if ! defined($gid);
+
+        my $msg = "EGID from $EGID to $gid with GID $GID";
+        if ($EGID eq $gid_full) {
+            $self->verbose(ucfirst($oper)." $msg: no changes required")
+        } else {
+            $EGID = $gid_full;
+            if ($EGID eq $gid_full) {
+                $self->verbose(ucfirst($oper)." $msg")
+            } else {
+                $self->error("Something went wrong $oper $msg: new EGID $EGID, reason $!");
+                return 0;
+            }
+        }
+        return 1;
+    };
+
+    my $res = 0;
+    if ($restore) {
+        # first restore user
+        $res += &$set_user;
+        $res += &$set_group if $res;
+    } else {
+        # first set group
+        #   new euid might not have sufficient permissions to change the gid
+        $res += &$set_group;
+        $res += &$set_user if $res;
+    }
+
+    return $res == 2 ? 1 : 0;
+}
+
 sub _LC_Process
 {
     my ($self, $function, $args, $noaction_value, $msg, $postmsg) = @_;
 
+    my $res;
     $msg =~ s/^(\w)/Not \L$1/ if $self->noAction();
     $self->verbose("$msg command: ",
                    ($self->{sensitive} ? "$self->{COMMAND}->[0] <sensitive>" : $self->stringify_command()),
@@ -165,16 +304,26 @@ sub _LC_Process
     if ($self->noAction()) {
         $self->debug(1, "LC_Process in noaction mode for $function");
         $? = 0;
-        return $noaction_value;
+        $res = $noaction_value;
     } else {
-        my $funcref = $LC_PROCESS_DISPATCH{$function};
-        if (defined($funcref)) {
-            return $funcref->(@$args);
-        } else {
-            $self->error("Unsupported LC::Process function $function");
-            return;
+        # The original GID (as list of groups)
+        my $orig_user_group = [$UID, "$GID"];
+
+        if ($self->_set_eff_user_group()) {
+            my $funcref = $LC_PROCESS_DISPATCH{$function};
+            if (defined($funcref)) {
+                $res = $funcref->(@$args);
+            } else {
+                $self->error("Unsupported LC::Process function $function");
+                $res = undef;
+            }
         }
+
+        # always try to restore
+        $self->_set_eff_user_group($orig_user_group);
     }
+
+    return $res;
 }
 
 =back

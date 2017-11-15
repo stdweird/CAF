@@ -6,9 +6,12 @@ use lib "$Bin/modules";
 use testapp;
 use CAF::Process;
 use Test::More;
+use Test::Quattor::Object;
 
 use Test::MockModule;
 my $mock = Test::MockModule->new ("CAF::Process");
+
+my $obj = Test::Quattor::Object->new();
 
 my ($p, $this_app, $str, $fh, $out, $out2);
 
@@ -37,7 +40,7 @@ open ($fh, ">", \$str);
 $this_app = testapp->new ($0, qw (--verbose));
 $this_app->config_reporter(logfile => $fh);
 
-$p = CAF::Process->new ($command);
+$p = CAF::Process->new ($command, log => $obj);
 $p->execute ();
 is ($execute, 1, "execute called with no logging");
 ok (@$cmd == @$command, "Correct command called by execute");
